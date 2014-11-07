@@ -1,6 +1,7 @@
 # stdlib, alphabetical
 import itertools
 import os
+import logging
 from lxml import etree
 
 # Core Django, alphabetical
@@ -10,6 +11,7 @@ from django.db import models
 import requests
 
 # This project, alphabetical
+LOGGER = logging.getLogger(__name__)
 
 # This module, alphabetical
 from . import StorageException
@@ -58,8 +60,11 @@ class Duracloud(models.Model):
         :returns: Iterator of paths
         """
         params = {'prefix': prefix}
+        LOGGER.debug('URL: %s, params: %s', self.duraspace_url, params)
         response = self.session.get(self.duraspace_url, params=params)
+        LOGGER.debug('Response: %s', response)
         if response.status_code != 200:
+            LOGGER.warning('%s: Response: %s', response, response.text)
             raise StorageException('Unable to get list of files in %s' % prefix)
         # Response is XML in the form:
         # <space id="self.durastore">
@@ -68,15 +73,20 @@ class Duracloud(models.Model):
         # </space>
         root = etree.fromstring(response.content)
         paths = [p.text for p in root]
+        LOGGER.debug('Paths: %s', paths)
         while paths:
             for p in paths:
                 yield p
             params['marker'] = paths[-1]
+            LOGGER.debug('URL: %s, params: %s', self.duraspace_url, params)
             response = self.session.get(self.duraspace_url, params=params)
+            LOGGER.debug('Response: %s', response)
             if response.status_code != 200:
+                LOGGER.warning('%s: Response: %s', response, response.text)
                 raise StorageException('Unable to get list of files in %s' % prefix)
             root = etree.fromstring(response.content)
             paths = [p.text for p in root]
+            LOGGER.debug('Paths: %s', paths)
 
     def browse(self, path):
         if path and not path.endswith('/'):
@@ -118,6 +128,7 @@ class Duracloud(models.Model):
         url = self.duraspace_url + src_path
         response = self.session.get(url)
         if response.status_code == 404:
+            LOGGER.debug('%s not found, trying as folder', src_path)
             # File cannot be found - this may be a folder
             to_get = self._get_files_list(src_path)
             # Check if anything was found
@@ -152,7 +163,9 @@ class Duracloud(models.Model):
         # Example URL: https://trial.duracloud.org/durastore/trial261//ts/test.txt
         with open(upload_file, 'rb') as f:
             response = self.session.put(url, data=f)
+        LOGGER.info('Response: %s', response)
         if response.status_code != 201:
+            LOGGER.warning('Response text: %s', response.text)
             raise StorageException('Unable to store %s' % upload_file)
 
     def move_from_storage_service(self, source_path, destination_path):
